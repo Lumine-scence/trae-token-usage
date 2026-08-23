@@ -1,0 +1,16 @@
+# runtime artifacts (contain private data)
+key_capture.log
+usage_cache.json
+config.json
+project_aliases.json
+__pycache__/
+*.pyc
+*.pyo
+
+# build artifacts of the closed-source core
+obj/
+*.lib
+*.exp
+
+# local experiments
+smoke_test_output/

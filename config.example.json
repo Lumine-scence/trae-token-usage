@@ -1,0 +1,7 @@
+{
+  "db_path": "",
+  "dll_path": "",
+  "key_log": "",
+  "auto_capture": true,
+  "rva_fallback": "0x92B149C"
+}
