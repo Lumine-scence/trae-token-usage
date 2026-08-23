@@ -6,7 +6,7 @@
 
 真实精确数据 · 输入 / 输出 / 推理 / 缓存命中 · 支持按项目统计
 
-![License](https://img.shields.io/badge/License-GPL--3.0-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-green)
 ![Protocol](https://img.shields.io/badge/Protocol-MCP-orange)
@@ -262,7 +262,8 @@ trae-token-usage/
 │   └── HOW_IT_WORKS.md   # 格式与逆向原理笔记
 ├── config.example.json   # 配置模板
 ├── smoke_test.py         # 端到端冒烟测试
-├── LICENSE               # GPL-3.0
+├── LICENSE               # MIT
+
 └── README.md
 ```
 
@@ -279,7 +280,11 @@ trae-token-usage/
 
 ## 📄 License
 
-[GPL-3.0](LICENSE) © 2026
+本项目基于 [MIT License](LICENSE) 开源 —— 可自由使用、修改、分发。
+
+唯一的特别说明：\bin/trae_crypto.dll\ 以**预编译二进制**形式提供，
+其实现源码不包含在本仓库中。你可以原样使用和分发该文件，但无法从这里
+获得它的源码。
 
 <div align="center">
 
