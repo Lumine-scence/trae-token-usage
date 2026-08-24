@@ -16,23 +16,10 @@ for _p in (_REPO, _HERE):
 
 from server import engine as eng_mod          # noqa: E402
 from server.engine import EngineError         # noqa: E402
-from server.keywatch import start_watcher     # noqa: E402
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "trae-real-usage"
 SERVER_VERSION = "1.0.0"
-
-_state = {"auto_capture_done": False, "last_capture_info": None,
-          "watcher_ready": threading.Event()}
-
-
-def _wait_watcher_ready():
-    """阻塞直至 watcher 进入监听循环（补获密钥前的时序保证）。"""
-    _state["watcher_ready"].wait(timeout=180)
-
-
-_engine = eng_mod.UsageEngine(log=lambda m: _elog(m),
-                              before_capture_hook=_wait_watcher_ready)
 
 
 def _elog(m):
@@ -42,35 +29,15 @@ def _elog(m):
         pass
 
 
-def _maybe_auto_capture(delay):
-    def worker():
-        time.sleep(delay)
-        if _state["auto_capture_done"]:
-            return
-        _state["auto_capture_done"] = True
-        if not _engine.cfg.auto_capture:
-            return
-        if not _engine.key_is_stale():
-            _elog("[auto] 密钥有效，跳过补获")
-            return
-        _elog("[auto] 密钥缺失/过期，后台自动补获 ...")
-        t0 = time.time()
-        ok = _engine.ensure_key()
-        _state["last_capture_info"] = {"got": ok, "elapsed": round(time.time() - t0, 1)}
-        if ok:
-            _elog("[auto] 补获成功")
-
-    threading.Thread(target=worker, daemon=True).start()
+# auto_fetch=False：MCP 服务绝不杀 ai-agent、绝不自动抓密钥。
+# 密钥缺失/失效时只读已存密钥并引导用户手动运行 capture_key_once.py。
+_engine = eng_mod.UsageEngine(log=_elog, auto_fetch=False)
 
 
 # ------------------------------------------------------------------ 工具
 def _fmt(n):
-    n = int(n)
-    if n >= 1_000_000:
-        return "%.1fM" % (n / 1_000_000)
-    if n >= 1_000:
-        return "%.1fk" % (n / 1_000)
-    return str(n)
+    # 完整整数返回，不做 k/M 缩写
+    return str(int(n))
 
 
 def _proj_id(rec):
@@ -169,24 +136,31 @@ def tool_refresh_token_usage(args):
     return "刷新完成（%.1fs）：共 %d 轮记录。" % (time.time() - t0, len(recs))
 
 
-def tool_capture_db_key(args):
-    ok = _engine.ensure_key(timeout=120)
-    return ("密钥已就绪。" if ok else
-            "补获失败：请确认 TRAE 正在运行，稍后重试。")
-
-
 def tool_get_key_status(args):
     lit = eng_mod.load_key_literal(_engine.cfg.key_log)
     age = eng_mod.key_age_seconds(_engine.cfg.key_log)
     stale = _engine.key_is_stale()
-    cap = _state["last_capture_info"]
     return (
-        "密钥状态：\n- 已捕获: %s\n- 捕获时间: %s前\n- 相对最近 ai-agent 进程: %s\n"
-        "- 后台上次补获: %s"
+        "密钥状态：\n- 已捕获: %s\n- 采集时间: %s前\n- 有效性: %s\n"
+        "- 提示: 密钥缺失或失效时，请打开项目目录下的 capture_key_once.py 脚本"
+        "并按提示重启 TRAE 以获取密钥，完成后重新查询。"
         % ("是" if lit else "否",
            ("%.0f 秒" % age) if age is not None else "无记录",
-           ("有效" if not stale else "已过期（查询时会自动补获）"),
-           json.dumps(cap, ensure_ascii=False) if cap else "尚未执行"))
+           ("有效" if not stale
+            else "已过期（请运行 capture_key_once.py 并重启 TRAE 重新采集）")))
+
+
+def tool_capture_db_key(args):
+    """纯指引工具：只返回给用户的手动采集步骤，不执行任何采集、不调底层。
+    调用方（agent）不得自行获取密钥，只需将本段指引转达给用户执行。"""
+    return (
+        "采集数据库密钥需要你在终端手动操作（自动采集会重启 TRAE，且权限受限无法由对话完成）。\n"
+        "请你按以下步骤操作：\n"
+        "1. 打开项目目录下的 capture_key_once.py（或在命令行执行 python capture_key_once.py）；\n"
+        "2. 按脚本提示，必要时重启 TRAE 以采集数据库密钥，脚本会落盘密钥；\n"
+        "3. 完成后回到本对话，告诉我\"已采集\"，我再用 get_key_status 确认后重新查询。\n"
+        "（采集期间 TRAE 的 AI 会话可能中断几秒，属正常现象。）\n"
+        "注意：此操作仅由你来执行，我不会也无需自行获取密钥。")
 
 
 TOOLS = [
@@ -206,11 +180,11 @@ TOOLS = [
      "description": "强制重新解析本地数据库刷新缓存。",
      "inputSchema": {"type": "object",
                      "properties": {"force": {"type": "boolean"}}, "required": []}},
-    {"name": "capture_db_key",
-     "description": "确保数据库密钥可用（必要时重启 TRAE 的 ai-agent 进程补获，会话会短暂中断后恢复）。",
-     "inputSchema": {"type": "object", "properties": {}, "required": []}},
     {"name": "get_key_status",
      "description": "查看数据库密钥状态。",
+     "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    {"name": "capture_db_key",
+     "description": "纯指引工具：返回需转达给用户的手动采集密钥步骤。不执行任何采集，agent 请勿自行获取密钥，仅在密钥缺失时调用并转达结果给用户。",
      "inputSchema": {"type": "object", "properties": {}, "required": []}},
 ]
 
@@ -219,8 +193,8 @@ TOOL_IMPL = {
     "get_usage_stats": tool_get_usage_stats,
     "get_usage_by_project": tool_get_usage_by_project,
     "refresh_token_usage": tool_refresh_token_usage,
-    "capture_db_key": tool_capture_db_key,
     "get_key_status": tool_get_key_status,
+    "capture_db_key": tool_capture_db_key,
 }
 
 # ------------------------------------------------------------------ 协议层
@@ -258,7 +232,8 @@ def _handle(request):
         except Exception as e:  # noqa: BLE001
             hint = ""
             if isinstance(e, EngineError):
-                hint = "\n提示：可调用 capture_db_key 工具重试。"
+                hint = ("\n提示：请打开项目目录下的 capture_key_once.py 脚本，"
+                        "并按提示重启 TRAE 以获取密钥；或调用 capture_db_key 工具获取手动操作指引。")
             result = {"content": [{"type": "text",
                                    "text": "工具 %s 执行失败: %s%s" % (name, e, hint)}],
                       "isError": True}
@@ -275,21 +250,12 @@ def main():
     except (AttributeError, ValueError):
         pass
 
-    try:
-        ok, ready_ev = start_watcher(_engine, log=_elog)
-        _state["watcher_ready"] = ready_ev
-        if not ok:
-            _elog("watcher 不可用（frida 缺失）")
-    except Exception as e:  # noqa: BLE001
-        _elog("watcher 启动失败: %s" % e)
-
     def warmup():
         try:
             _engine.get_records()
             _elog("[warmup] 用量缓存就绪")
         except Exception as e:  # noqa: BLE001
             _elog("[warmup] 预热跳过: %s" % str(e)[:140])
-        _maybe_auto_capture(5)
 
     threading.Thread(target=warmup, daemon=True).start()
     _elog("server ready (%s v%s)" % (SERVER_NAME, SERVER_VERSION))

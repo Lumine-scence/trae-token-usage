@@ -25,7 +25,7 @@
 | 🧩 **字段完整** | 每轮的输入、输出、推理、缓存创建、缓存命中 tokens 一应俱全 |
 | 🗂️ **按项目统计** | 自动识别消息所属工作区，分项目聚合用量与缓存命中率 |
 | ⚡ **增量刷新** | 主库全量解析一次后日常仅重扫 WAL，秒级拿到最新对话 |
-| 🔑 **全自动维护** | 密钥随 TRAE 重启轮换？后台 watcher 自动捕获，无需人工干预 |
+| 🔑 **手动采集·日常自动** | 仅在密钥轮换时手动运行一次采集脚本，之后查询全程自动，不打断对话 |
 | 🪶 **零安装负担** | 密码学核心已编译进 DLL，无需额外编译器或原生依赖 |
 
 ---
@@ -43,7 +43,7 @@
 
 > 💡 本仓库已附带编译好的核心组件 `bin/trae_crypto.dll`，无需安装 C 编译器。
 
-### 三步接入 TRAE
+### 四步接入 TRAE
 
 **第 1 步 · 克隆或下载本仓库到本地任意位置**
 
@@ -56,6 +56,9 @@ git clone https://github.com/Lumine-scence/trae-token-usage.git
 ```bat
 pip install frida psutil cryptography
 ```
+
+> 💡 记下你执行上面命令所用的 Python 完整路径（`python -c "import sys; print(sys.executable)"`），
+> 第 3 步和第 4 步都要用到它。
 
 **第 3 步 · 在 TRAE 中注册 MCP**
 
@@ -76,6 +79,23 @@ pip install frida psutil cryptography
 
 保存并启用即可。
 
+**第 4 步 · 首次采集密钥**
+
+在项目目录下，用**第 2 步那个 Python**（已装 frida）运行采集脚本：
+
+```bat
+cd /d "你的项目目录\trae-token-usage"
+"你的Python完整路径\python.exe" capture_key_once.py
+```
+
+> 若你的默认 `python` 就是装了依赖的那个，也可直接：
+> ```bat
+> python capture_key_once.py
+> ```
+
+脚本会自动判断：现有密钥仍有效则立即成功退出；需要重采时会让 TRAE 的 AI 会话
+中断几秒后恢复（正常现象）。出现 `完成` 即采集成功。此后日常查询无需再操作。
+
 ---
 
 ## 🚀 使用
@@ -85,9 +105,9 @@ pip install frida psutil cryptography
 > 🙋 **「我最近的 token 用量是多少？」**
 >
 > 🤖 最近 3 轮 / 共 218 轮：
-> - trae插件 | 输入 414.5k | 输出 363 | 推理 145 | 缓存读 405.5k
+> - trae插件 | 输入 414521 | 输出 363 | 推理 145 | 缓存读 405521
 > ……
-> 总计 218 轮：输入 25,577,124 | 输出 246,776 | 缓存命中率 94.4%
+> 总计 218 轮：输入 25577124 | 输出 246776 | 缓存命中率 94.4%
 
 更多问法与对应工具：
 
@@ -101,19 +121,22 @@ pip install frida psutil cryptography
 
 ### 需要手动运行什么脚本吗？
 
-**不需要。** 配置完成后，每次 TRAE 启动都会自动拉起本服务（MCP 标准的
-stdio 托管模式），密钥捕获、解密、缓存全部在后台自动完成，随 TRAE 一起
-退出。仓库里的 \启动MCP服务.bat\ 仅用于排障时手动查看日志，日常完全用不到。
+日常查询**不需要**手动操作。但**密钥采集是例外的唯一一步**：TRAE 的本地
+数据库是加密的，密钥在 TRAE 升级/重启时会轮换。MCP 服务**刻意不在对话中
+自动抓取密钥**（那会迫使它重启 TRAE 的 ai-agent 进程、打断当前会话），
+因此需要密钥时，先在项目目录运行一次 `capture_key_once.py` 手动采集，之后
+查询便一切自动。
 
-### 关于首次查询
+### 关于密钥采集
 
-服务启动时会自动确保数据库密钥可用。若 TRAE 刚刚重启过（密钥已轮换），
-首次查询会触发一次**自动补获**：
+首次使用、或 TRAE 升级/重启后密钥已轮换时，提示「密钥不可用」，需重新采集：
 
-- ⏳ 当前 AI 会话会中断几秒后自动恢复，属正常现象；
-- 若该次请求恰好被中断，**再问一遍即可**——第二次密钥已就绪。
+1. 确认 TRAE 正在运行、可正常对话；
+2. 用**装有 frida/psutil 的 Python** 在项目目录运行 `capture_key_once.py`
+   （见「四步接入」第 4 步，或命令行直接在项目目录执行 `python capture_key_once.py`）；
+3. 需要重采时会让 TRAE 的 AI 会话中断几秒再恢复，属正常，随后完成。
 
-之后全程自动维护，无需关心。
+采集成功后回到对话即可查询；用 `get_key_status` 可确认「已捕获: 是」。
 
 ---
 
@@ -125,8 +148,8 @@ stdio 托管模式），密钥捕获、解密、缓存全部在后台自动完�
 | `get_usage_by_project` | `project`(可选) | 按项目聚合；可传别名或 ID 前 8 位过滤 |
 | `get_usage_stats` | — | 全历史总量统计与缓存命中率 |
 | `refresh_token_usage` | `force`(可选) | 重扫数据库；`force=true` 全量重算 |
-| `capture_db_key` | — | 手动触发密钥补获 |
-| `get_key_status` | — | 密钥新鲜度诊断 |
+| `capture_db_key` | — | 返回手动采集密钥的操作指引（授予用户操作，不自动重启） |
+| `get_key_status` | — | 密钥状态诊断 |
 
 ---
 
@@ -145,9 +168,10 @@ stdio 托管模式），密钥捕获、解密、缓存全部在后台自动完�
   "dll_path": "",
   // 密钥日志路径；留空使用仓库根 key_capture.log
   "key_log": "",
-  // 启动时是否自动补获过期密钥
+  // 已弃用（保留兼容）：MCP 服务一律不自动补获密钥，
+  // 密钥统一通过手动运行 capture_key_once.py 采集
   "auto_capture": true,
-  // 自动探测失败时的兜底挂钩地址
+  // 自动探测失败时的兜底挂钩地址（仅供 capture_key_once.py 采集使用）
   "rva_fallback": "0x92B149C",
   // TRAE 安装目录（RVA 探测需定位其中的 ai_agent.dll）；留空自动探测常见位置
   "ai_agent_dll_path": ""
@@ -180,17 +204,25 @@ TRAE 内部以 24 位十六进制 ID 标识项目（SOLO 版无官方名称）�
 ## ❓ FAQ
 
 <details>
-<summary>提示「密钥不可用且自动补获失败」？</summary>
+<summary>提示「密钥不可用」？</summary>
 
-确认 TRAE 正在运行（ai-agent 进程存在），然后说「帮我捕获数据库密钥」或
-调用 `capture_db_key`。成功标志见 `get_key_status`。
+MCP 服务刻意<b>不在对话中自动抓取密钥</b>（那会迫使它重启 TRAE 的 ai-agent
+进程、打断当前会话，还容易反复中断进入死循环）。密钥统一由你手动采集：
+
+1. 确认 TRAE 正在运行，可正常对话；
+2. 用**装有 frida/psutil 的 Python**在项目目录运行 <code>capture_key_once.py</code>
+   （在项目目录执行 <code>python capture_key_once.py</code>）；
+3. 脚本会输出说明：密钥有效则立即退出；需要重采时会让 TRAE 的 AI
+   会话中断几秒再恢复，属正常等待，随后完成。
+
+完成后回到本对话重试即可，或用 <code>get_key_status</code> 确认「已捕获: 是」。
 </details>
 
 <details>
 <summary>返回的记录数突然变少 / 为空？</summary>
 
-几乎总是密钥过期（TRAE 升级或重启导致轮换）。执行一次 `capture_db_key`
-即可恢复；历史数据不会丢失。
+几乎总是密钥过期（TRAE 升级或重启导致轮换）。重新运行一次
+<code>capture_key_once.py</code> 采集即可恢复；历史数据不会丢失。
 </details>
 
 <details>

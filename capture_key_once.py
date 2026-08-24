@@ -28,7 +28,7 @@ def main():
         from server.keywatch import start_watcher
     except Exception as e:
         log("依赖导入失败: %r" % e)
-        log("请确认已通过 capture_key.bat 启动（使用装有 frida/psutil 的 Python）。")
+        log("请使用安装了 frida/psutil 的 Python 来运行本脚本（如 VS 自带 Python）。")
         return 1
 
     eng = UsageEngine(log=log)
@@ -58,7 +58,7 @@ def main():
     log("启动 frida watcher ...")
     ok, ready = start_watcher(eng, log=log)
     if not ok:
-        log("无法启动密钥 watcher：缺少 frida/psutil，请改用 capture_key.bat 启动。")
+        log("无法启动密钥 watcher：缺少 frida/psutil，请改用装有依赖的 Python 运行本脚本。")
         return 1
     if not ready.wait(timeout=180):
         log("watcher 未能就绪，放弃采集。请先确认 TRAE 正在运行。")

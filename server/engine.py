@@ -179,12 +179,15 @@ def alias_for(pid, aliases):
 
 # ------------------------------------------------------------------ 引擎门面
 class UsageEngine:
-    def __init__(self, log=None, before_capture_hook=None):
+    def __init__(self, log=None, before_capture_hook=None, auto_fetch=True):
         self.cfg = Config()
         self.cfg.ensure_dirs()
         self.log = log or (lambda m: None)
         # 补获密钥前由 MCP 层注入的等待回调（确保 frida watcher 已进入监听）
         self.before_capture_hook = before_capture_hook
+        # True=允许杀 ai-agent 自动补获（capture_key_once.py 手动采集用）；
+        # False=只读已存密钥，绝不杀进程（MCP 服务用，防止对话中杀进程死循环）
+        self.auto_fetch = auto_fetch
         self._dll = None
         self._cache = self._load_cache()
         # 本次进程内已验证过密钥有效；避免重启后每次都重复全量解密
@@ -246,21 +249,26 @@ class UsageEngine:
         return data.count(b"sqlite") > 0
 
     def ensure_key(self, timeout=90):
-        """密钥无效则同步自动补获（杀 ai-agent 触发重启）。返回 True/False。
+        """确保密钥可用。返回 True/False。
 
         关键时序保证：杀进程之前必须让 watcher 完成 RVA 探测并进入监听状态，
         否则新进程开库会早于挂钩就位而永远错过。
+        auto_fetch=False（MCP 服务）时绝不杀进程，只读已存密钥。
         """
         if self._key_confirmed:
             return True
         if not self.key_is_stale():
+            self._key_confirmed = True
             return True
         # 已有密钥却判"过期"（刚重启过、TRAE 又拉起新 ai-agent）：
         # 先用存下来的密钥试解密主库，若仍产出结构化 SQLite 内容则密钥未轮换，直接复用。
         if self._existing_key_valid():
             self._key_confirmed = True
-            self.log("[engine] 已存密钥仍有效，跳过补获")
+            self.log("[engine] 已存密钥仍有效，复用")
             return True
+        if not self.auto_fetch:
+            self.log("[engine] 无有效密钥：请先手动运行 capture_key_once.py 采集")
+            return False
         try:
             self.get_key_rva()          # 强制完成探测（watcher 用同一结果）
         except EngineError as e:
@@ -330,8 +338,8 @@ class UsageEngine:
             stale = self.key_is_stale()
             if not lit or (stale and not self.ensure_key()):
                 raise EngineError(
-                    "密钥不可用且自动补获失败：请确认 TRAE 正在运行后重试，"
-                    "或调用 capture_db_key 工具手动触发。")
+                    "密钥不可用：请运行项目目录下的 capture_key_once.py 获取密钥"
+                    "（脚本会引导采集，必要时自动重启 TRAE），采集成功后重新查询。")
             key = parse_key(load_key_literal(self.cfg.key_log))
 
             db_m = os.path.getmtime(self.cfg.db_path) if os.path.isfile(self.cfg.db_path) else None
