@@ -187,6 +187,8 @@ class UsageEngine:
         self.before_capture_hook = before_capture_hook
         self._dll = None
         self._cache = self._load_cache()
+        # 本次进程内已验证过密钥有效；避免重启后每次都重复全量解密
+        self._key_confirmed = False
 
     # ---- 基础设施
     @property
@@ -223,13 +225,41 @@ class UsageEngine:
         born = recent_ai_agent_born_ts()
         return born > 0 and (time.time() - age) < born
 
+    def _existing_key_valid(self):
+        """用已存密钥试解密主库，判断密钥是否仍然有效。
+        正确密钥解出结构化 SQLite 内容（含大量 'sqlite' 字样）；
+        错误密钥只能得到伪随机字节（'sqlite' 基本为 0）。
+        """
+        lit = load_key_literal(self.cfg.key_log)
+        if not lit:
+            return False
+        try:
+            key = parse_key(lit)
+        except EngineError:
+            return False
+        if not os.path.isfile(self.cfg.db_path):
+            return False
+        try:
+            data = self.dll.decrypt_file(key, self.cfg.db_path, True)
+        except (EngineError, OSError):
+            return False
+        return data.count(b"sqlite") > 0
+
     def ensure_key(self, timeout=90):
         """密钥无效则同步自动补获（杀 ai-agent 触发重启）。返回 True/False。
 
         关键时序保证：杀进程之前必须让 watcher 完成 RVA 探测并进入监听状态，
         否则新进程开库会早于挂钩就位而永远错过。
         """
+        if self._key_confirmed:
+            return True
         if not self.key_is_stale():
+            return True
+        # 已有密钥却判"过期"（刚重启过、TRAE 又拉起新 ai-agent）：
+        # 先用存下来的密钥试解密主库，若仍产出结构化 SQLite 内容则密钥未轮换，直接复用。
+        if self._existing_key_valid():
+            self._key_confirmed = True
+            self.log("[engine] 已存密钥仍有效，跳过补获")
             return True
         try:
             self.get_key_rva()          # 强制完成探测（watcher 用同一结果）
@@ -257,6 +287,7 @@ class UsageEngine:
                 pass
             time.sleep(1)
         ok = bool(lit)
+        self._key_confirmed = ok
         self.log("[engine] 自动补获%s" % ("成功" if ok else "失败"))
         return ok
 
