@@ -179,10 +179,12 @@ def alias_for(pid, aliases):
 
 # ------------------------------------------------------------------ 引擎门面
 class UsageEngine:
-    def __init__(self, log=None):
+    def __init__(self, log=None, before_capture_hook=None):
         self.cfg = Config()
         self.cfg.ensure_dirs()
         self.log = log or (lambda m: None)
+        # 补获密钥前由 MCP 层注入的等待回调（确保 frida watcher 已进入监听）
+        self.before_capture_hook = before_capture_hook
         self._dll = None
         self._cache = self._load_cache()
 
@@ -234,7 +236,10 @@ class UsageEngine:
         except EngineError as e:
             self.log("[engine] RVA 探测失败，无法安全补获：%s" % e)
             return False
-        time.sleep(0.5)                 # 给 watcher 一点进入监听的时间
+        if self.before_capture_hook:
+            self.log("[engine] 等待密钥监听就绪 ...")
+            self.before_capture_hook()  # 阻塞直至 watcher 进入监听循环
+        time.sleep(0.5)                 # 再给 watcher 一点进入监听的时间
         self.log("[engine] 密钥缺失/过期，自动补获（当前 AI 会话将中断几秒后恢复）...")
         if not os.path.isfile(self.cfg.key_log):
             open(self.cfg.key_log, "a", encoding="utf-8").close()
@@ -263,9 +268,29 @@ class UsageEngine:
             return self.cfg.rva_fallback
 
     def _ai_agent_dll_path(self):
-        base = os.environ.get("TRAE_INSTALL_DIR",
-                              r"D:\TRAE SOLO CN\resources\app\modules\ai-agent")
-        return os.path.join(base, "ai_agent.dll")
+        """定位 ai_agent.dll：config 显式配置 > TRAE_INSTALL_DIR 环境变量 > 常见位置探测。"""
+        if self.cfg.ai_agent_dll_path:
+            return self.cfg.ai_agent_dll_path
+        env = os.environ.get("TRAE_INSTALL_DIR")
+        if env:
+            cand = os.path.join(env, "resources", "app", "modules",
+                                "ai-agent", "ai_agent.dll")
+            if os.path.isfile(cand):
+                return cand
+        candidates = []
+        for drive in ("C", "D", "E"):
+            candidates.append(rf"{drive}:\TRAE SOLO CN\resources\app\modules"
+                              rf"\ai-agent\ai_agent.dll")
+        for pf_var in ("ProgramFiles", "ProgramFiles(x86)"):
+            pf = os.environ.get(pf_var)
+            if pf:
+                candidates.append(os.path.join(
+                    pf, "TRAE SOLO CN", "resources", "app", "modules",
+                    "ai-agent", "ai_agent.dll"))
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        return candidates[0]
 
     # ---- 主入口
     def get_records(self, force=False):

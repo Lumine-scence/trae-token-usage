@@ -148,7 +148,9 @@ stdio 托管模式），密钥捕获、解密、缓存全部在后台自动完�
   // 启动时是否自动补获过期密钥
   "auto_capture": true,
   // 自动探测失败时的兜底挂钩地址
-  "rva_fallback": "0x92B149C"
+  "rva_fallback": "0x92B149C",
+  // TRAE 安装目录（RVA 探测需定位其中的 ai_agent.dll）；留空自动探测常见位置
+  "ai_agent_dll_path": ""
 }
 ```
 
@@ -280,11 +282,7 @@ trae-token-usage/
 
 ## 📄 License
 
-本项目基于 [MIT License](LICENSE) 开源 —— 可自由使用、修改、分发。
-
-唯一的特别说明：\bin/trae_crypto.dll\ 以**预编译二进制**形式提供，
-其实现源码不包含在本仓库中。你可以原样使用和分发该文件，但无法从这里
-获得它的源码。
+[MIT License](LICENSE)
 
 <div align="center">
 

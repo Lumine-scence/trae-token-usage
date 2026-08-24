@@ -22,8 +22,17 @@ PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "trae-real-usage"
 SERVER_VERSION = "1.0.0"
 
-_engine = eng_mod.UsageEngine(log=lambda m: _elog(m))
-_state = {"auto_capture_done": False, "last_capture_info": None}
+_state = {"auto_capture_done": False, "last_capture_info": None,
+          "watcher_ready": threading.Event()}
+
+
+def _wait_watcher_ready():
+    """阻塞直至 watcher 进入监听循环（补获密钥前的时序保证）。"""
+    _state["watcher_ready"].wait(timeout=180)
+
+
+_engine = eng_mod.UsageEngine(log=lambda m: _elog(m),
+                              before_capture_hook=_wait_watcher_ready)
 
 
 def _elog(m):
@@ -267,7 +276,10 @@ def main():
         pass
 
     try:
-        start_watcher(_engine, log=_elog)
+        ok, ready_ev = start_watcher(_engine, log=_elog)
+        _state["watcher_ready"] = ready_ev
+        if not ok:
+            _elog("watcher 不可用（frida 缺失）")
     except Exception as e:  # noqa: BLE001
         _elog("watcher 启动失败: %s" % e)
 

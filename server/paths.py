@@ -48,6 +48,8 @@ class Config:
             self.rva_fallback = int(str(raw.get("rva_fallback", "0x92B149C")), 16)
         except ValueError:
             self.rva_fallback = 0x92B149C
+        # TRAE 安装目录下 ai_agent.dll 的完整路径；留空则自动探测常见位置
+        self.ai_agent_dll_path = raw.get("ai_agent_dll_path") or ""
         # 运行产物目录（缓存等）默认放 repo 根
         self.cache_path = raw.get("cache_path") or os.path.join(
             REPO, "usage_cache.json")

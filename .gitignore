@@ -14,3 +14,15 @@ obj/
 
 # local experiments
 smoke_test_output/
+smoke_out.log
+smoke_err.log
+
+# internal handoff / local dev helpers (never publish)
+NEXT_AGENT_HANDOFF.md
+TOMORROW_TODO.md
+debug_capture.py
+diag_capture.py
+diag_capture.log
+observe_sqlite.py
+run_capture_test.bat
+tools/
