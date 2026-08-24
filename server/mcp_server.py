@@ -19,7 +19,7 @@ from server.engine import EngineError         # noqa: E402
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "trae-real-usage"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.0"
 
 
 def _elog(m):
